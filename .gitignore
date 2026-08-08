@@ -1,0 +1,36 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+## Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+
+## NuGet
+*.nupkg
+packages/
+
+## Secrets (never commit real secrets)
+secrets.json
+appsettings.local.json
+appsettings.Production.json
+
+## SQLite runtime data (account state — not source content)
+Storage/*.db
+Storage/*.db-shm
+Storage/*.db-wal
+
+## Rider
+.idea/
+
+## VS Code
+.vscode/
+
+## OS
+.DS_Store
+Thumbs.db
