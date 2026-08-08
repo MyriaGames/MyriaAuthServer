@@ -72,6 +72,15 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
+// Startup version banner — reads the .installed_version marker update-production.sh writes
+// (into ./auth/ specifically for this service, since it runs from its own AppContext.BaseDirectory)
+// after a deploy. Falls back to a clear "dev" label for local runs / manual deployments.
+var versionMarkerPath = Path.Combine(AppContext.BaseDirectory, ".installed_version");
+var runningVersion = File.Exists(versionMarkerPath)
+    ? File.ReadAllText(versionMarkerPath).Trim()
+    : "dev (no .installed_version marker — not deployed via update-production.sh)";
+app.Logger.LogInformation("MyriaAuthServer starting — version: {Version}", runningVersion);
+
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
