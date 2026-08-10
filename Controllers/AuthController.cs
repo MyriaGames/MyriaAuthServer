@@ -1,9 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
-using MyriaAuthServer.Models.Dto;
-using MyriaAuthServer.Services;
+using Myria.Server.Auth.Models.Dto;
+using Myria.Server.Auth.Services;
 
-namespace MyriaAuthServer.Controllers
+namespace Myria.Server.Auth.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]

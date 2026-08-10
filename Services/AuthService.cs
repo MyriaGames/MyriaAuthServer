@@ -4,11 +4,11 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using MyriaAuthServer.Data;
-using MyriaAuthServer.Models;
-using MyriaAuthServer.Models.Dto;
+using Myria.Server.Auth.Data;
+using Myria.Server.Auth.Models;
+using Myria.Server.Auth.Models.Dto;
 
-namespace MyriaAuthServer.Services
+namespace Myria.Server.Auth.Services
 {
     public class AuthService(AuthDbContext db, IConfiguration config)
     {

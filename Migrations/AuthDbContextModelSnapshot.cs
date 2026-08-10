@@ -3,11 +3,11 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
-using MyriaAuthServer.Data;
+using Myria.Server.Auth.Data;
 
 #nullable disable
 
-namespace MyriaAuthServer.Migrations
+namespace Myria.Server.Auth.Migrations
 {
     [DbContext(typeof(AuthDbContext))]
     partial class AuthDbContextModelSnapshot : ModelSnapshot
@@ -17,7 +17,7 @@ namespace MyriaAuthServer.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.11");
 
-            modelBuilder.Entity("MyriaAuthServer.Models.User", b =>
+            modelBuilder.Entity("Myria.Server.Auth.Models.User", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()

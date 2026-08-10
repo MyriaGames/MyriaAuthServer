@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
-using MyriaAuthServer.Models;
+using Myria.Server.Auth.Models;
 
-namespace MyriaAuthServer.Controllers
+namespace Myria.Server.Auth.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]

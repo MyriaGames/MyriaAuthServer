@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace MyriaAuthServer.Models
+namespace Myria.Server.Auth.Models
 {
     public class User
     {

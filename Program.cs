@@ -2,8 +2,8 @@ using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
-using MyriaAuthServer.Data;
-using MyriaAuthServer.Services;
+using Myria.Server.Auth.Data;
+using Myria.Server.Auth.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -67,7 +67,7 @@ builder.Services.AddEndpointsApiExplorer();
 
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new OpenApiInfo { Title = "MyriaAuthServer API", Version = "v1" });
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "Myria.Server.Auth API", Version = "v1" });
 });
 
 var app = builder.Build();
@@ -79,7 +79,7 @@ var versionMarkerPath = Path.Combine(AppContext.BaseDirectory, ".installed_versi
 var runningVersion = File.Exists(versionMarkerPath)
     ? File.ReadAllText(versionMarkerPath).Trim()
     : "dev (no .installed_version marker — not deployed via update-production.sh)";
-app.Logger.LogInformation("MyriaAuthServer starting — version: {Version}", runningVersion);
+app.Logger.LogInformation("Myria.Server.Auth starting — version: {Version}", runningVersion);
 
 using (var scope = app.Services.CreateScope())
 {

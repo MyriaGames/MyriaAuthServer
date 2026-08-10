@@ -1,4 +1,4 @@
-namespace MyriaAuthServer.Models.Dto
+namespace Myria.Server.Auth.Models.Dto
 {
     public class AuthResponse
     {

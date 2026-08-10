@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace MyriaAuthServer.Models.Dto
+namespace Myria.Server.Auth.Models.Dto
 {
     public class RegisterRequest
     {

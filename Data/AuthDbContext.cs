@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
-using MyriaAuthServer.Models;
+using Myria.Server.Auth.Models;
 
-namespace MyriaAuthServer.Data
+namespace Myria.Server.Auth.Data
 {
     public class AuthDbContext(DbContextOptions<AuthDbContext> options) : DbContext(options)
     {

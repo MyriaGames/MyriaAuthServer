@@ -1,6 +1,6 @@
 {
   "profiles": {
-    "MyriaAuthServer": {
+    "Myria.Server.Auth": {
       "commandName": "Project",
       "launchBrowser": true,
       "environmentVariables": {

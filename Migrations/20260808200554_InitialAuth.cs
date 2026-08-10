@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace MyriaAuthServer.Migrations
+namespace Myria.Server.Auth.Migrations
 {
     /// <inheritdoc />
     public partial class InitialAuth : Migration
