@@ -24,6 +24,27 @@ if (builder.Environment.IsProduction())
         throw new InvalidOperationException(
             "Security:Pepper is still the dev placeholder (or unset) while running in Production. " +
             "Set a real secret via the Security__Pepper environment variable before starting this service.");
+
+    var adminSecret = builder.Configuration["Admin:InternalSecret"];
+    if (adminSecret == "REPLACE_ME_DEV_PLACEHOLDER_ADMIN_SECRET" || string.IsNullOrWhiteSpace(adminSecret))
+        throw new InvalidOperationException(
+            "Admin:InternalSecret is still the dev placeholder (or unset) while running in Production. " +
+            "Set a real secret via the Admin__InternalSecret environment variable before starting this service.");
+
+    // Login/register submit a password — refuse to serve that over plain HTTP. The committed
+    // appsettings.json only defines an Http endpoint (fine for local dev on loopback); a real
+    // deployment MUST override Kestrel:Endpoints to an Https endpoint with a real certificate
+    // via a gitignored appsettings.Production.json (see Setup/README notes on generating one).
+    var httpsUrl  = builder.Configuration["Kestrel:Endpoints:Https:Url"];
+    var certPath  = builder.Configuration["Kestrel:Endpoints:Https:Certificate:Path"];
+    var certPass  = builder.Configuration["Kestrel:Endpoints:Https:Certificate:Password"];
+    if (string.IsNullOrWhiteSpace(httpsUrl) || string.IsNullOrWhiteSpace(certPath) || string.IsNullOrWhiteSpace(certPass))
+        throw new InvalidOperationException(
+            "No Kestrel:Endpoints:Https (with a Certificate:Path/Password) is configured while running " +
+            "in Production. This service would otherwise serve login/register — including the password " +
+            "— over plain HTTP. Configure a real HTTPS certificate via appsettings.Production.json.");
+    if (!File.Exists(Path.IsPathRooted(certPath) ? certPath : Path.Combine(AppContext.BaseDirectory, certPath)))
+        throw new InvalidOperationException($"Kestrel:Endpoints:Https:Certificate:Path '{certPath}' does not exist.");
 }
 
 // Database — local SQLite file, no external server/connection required. The connection
@@ -38,6 +59,7 @@ Directory.CreateDirectory(Path.GetDirectoryName(sqliteConnStr.DataSource)!);
 builder.Services.AddDbContext<AuthDbContext>(opt => opt.UseSqlite(sqliteConnStr.ConnectionString));
 
 builder.Services.AddScoped<AuthService>();
+builder.Services.AddHttpClient();
 
 // Basic brute-force / credential-stuffing friction on register+login: 5 attempts per
 // minute per client IP, queueing none (extra requests get an immediate 429). This is a
@@ -93,8 +115,9 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// No app.UseHttpsRedirection() here: the alpha deployment is HTTP-only (no public cert),
-// so redirecting to HTTPS would send every request into a dead endpoint.
+// No app.UseHttpsRedirection() here: Production is now HTTPS-only at the Kestrel level (see
+// the guard above) — there's no plain-HTTP endpoint left to redirect away from. Development
+// keeps its plain Http endpoint from appsettings.json for local-loopback convenience.
 app.UseRateLimiter();
 app.MapControllers();
 
