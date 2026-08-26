@@ -4,7 +4,7 @@
 packages it into an `auth/` subfolder alongside `MyriaServer`, and a single script
 (`run-production.sh`, which lives in the `MyriaGames/MyriaServer` repo) starts both together. If
 that's your situation, **use
-[Myria.Server.Realm's SETUP.md](https://github.com/MyriaGames/MyriaServer/blob/master/SETUP.md)
+[Myria.Server.Realm's SETUP.md](https://github.com/MyriaGames/MyriaServer/blob/main/SETUP.md)
 instead** — it's the complete, combined production runbook (certificates, secrets, systemd,
 updates) and covers this service's config as part of that.
 
@@ -105,7 +105,7 @@ service and each realm trust each other purely by shared secret, with no other h
 the exact value; don't retype it. `Security:Pepper` is only used here (realms don't hash
 passwords). `Realms` lists every realm this service should know about — see [this service's
 README](README.md#configuration-for-production-deployment) for the full config-key reference,
-and [`Myria.Server.Realm`'s SETUP.md](https://github.com/MyriaGames/MyriaServer/blob/master/SETUP.md)
+and [`Myria.Server.Realm`'s SETUP.md](https://github.com/MyriaGames/MyriaServer/blob/main/SETUP.md)
 for how a realm's matching config looks.
 
 Once this file is in place, Production serves **only** HTTPS — the plain-HTTP endpoint used for
