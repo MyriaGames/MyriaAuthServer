@@ -46,6 +46,8 @@ Even with a launch profile configured, Kestrel binds to the endpoint(s) defined 
 
 The service boots fine in Development using the placeholder secrets and default `Realms` list already committed in `appsettings.json` — no extra setup is required to run and exercise the API locally. EF Core migrations are applied automatically on startup (`db.Database.Migrate()`), creating `Storage/auth.db` next to the executable on first run.
 
+For a full walkthrough of deploying this to a real server — certificates, secrets, systemd, updates — see [SETUP.md](SETUP.md).
+
 ## Configuration for Production deployment
 
 At startup, if `ASPNETCORE_ENVIRONMENT=Production`, `Program.cs` **refuses to start** unless all of the following are satisfied. Config keys use ASP.NET Core's double-underscore environment-variable binding (`Section:Key` → `Section__Key`); alternatively, provide a local, gitignored `appsettings.Production.json`.
