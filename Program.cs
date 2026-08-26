@@ -65,6 +65,19 @@ builder.Services.AddHttpClient();
 // minute per client IP, queueing none (extra requests get an immediate 429). This is a
 // coarse first line of defense, not a substitute for proper account lockout — it just
 // stops naive automated hammering of the auth endpoints.
+//
+// ⚠️ Deployment note: this keys off ctx.Connection.RemoteIpAddress, the real TCP peer (this
+// service never trusts X-Forwarded-For - there's no app.UseForwardedHeaders() call anywhere
+// in this project). That's deliberate: trusting that header from an untrusted client would let
+// anyone spoof any IP. But it means if you put a reverse proxy (nginx, Caddy, IIS ARR, ...) on
+// THE SAME HOST in front of Kestrel, every request arrives from 127.0.0.1 as far as this code
+// is concerned - collapsing this 5/min-per-IP limit into one 5/min budget for your entire
+// userbase, AND collapsing AuthController's admin-endpoint loopback-only check (see its
+// RemoteIpAddress check) to nothing, since every client - proxied or not - now looks local. If
+// you do put a reverse proxy in front of this service, either terminate TLS at Kestrel directly
+// (this service can do that itself - see the HTTPS cert check above) instead, or configure
+// ForwardedHeadersOptions with an explicit KnownProxies/KnownNetworks allowlist rather than
+// trusting X-Forwarded-For from anyone.
 builder.Services.AddRateLimiter(opt =>
 {
     opt.RejectionStatusCode = StatusCodes.Status429TooManyRequests;

@@ -11,7 +11,9 @@ namespace Myria.Server.Auth.Models.Dto
         [Required, MinLength(3), MaxLength(50), RegularExpression(@"^[\p{L}\p{N}_-]+$")]
         public string Username { get; set; } = string.Empty;
 
-        [Required, MinLength(8)]
+        // Upper bound caps how much text gets fed into PBKDF2-SHA512 (200k iterations) per
+        // request, so an attacker can't drive CPU exhaustion by POSTing a multi-MB "password".
+        [Required, MinLength(8), MaxLength(128)]
         public string Password { get; set; } = string.Empty;
     }
 }

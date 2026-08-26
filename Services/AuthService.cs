@@ -26,6 +26,17 @@ namespace Myria.Server.Auth.Services
         private const int HashSize = 32;
         private const int Iterations = 200_000;
 
+        // A fixed, meaningless stored hash used only to burn the same PBKDF2 cost when a
+        // username doesn't exist. VerifyPassword itself is already constant-time for a genuine
+        // comparison (CryptographicOperations.FixedTimeEquals), but every call site used to
+        // short-circuit past it entirely via "user is null || !VerifyPassword(...)" - skipping
+        // ~200k PBKDF2-SHA512 iterations makes a nonexistent-username response measurably
+        // faster than a wrong-password one, which is a reliable timing oracle for account
+        // enumeration. Always calling VerifyPassword (against this dummy hash when there's no
+        // real user) closes that gap; it can never actually match a real password.
+        private static readonly string DummyPasswordHash =
+            $"{Convert.ToBase64String(new byte[SaltSize])}:{Convert.ToBase64String(new byte[HashSize])}";
+
         public async Task<AuthResponse?> RegisterAsync(RegisterRequest req)
         {
             if (await db.Users.AnyAsync(u => u.Username == req.Username))
@@ -46,7 +57,7 @@ namespace Myria.Server.Auth.Services
         public async Task<AuthResponse?> LoginAsync(LoginRequest req)
         {
             var user = await db.Users.SingleOrDefaultAsync(u => u.Username == req.Username);
-            if (user is null || !VerifyPassword(req.Password, user.PasswordHash))
+            if (!VerifyPassword(req.Password, user?.PasswordHash ?? DummyPasswordHash) || user is null)
                 return null;
 
             return BuildToken(user);
@@ -62,7 +73,7 @@ namespace Myria.Server.Auth.Services
         public async Task<AccountUpdateResult> DeleteAccountAsync(LoginRequest req)
         {
             var user = await db.Users.SingleOrDefaultAsync(u => u.Username == req.Username);
-            if (user is null || !VerifyPassword(req.Password, user.PasswordHash))
+            if (!VerifyPassword(req.Password, user?.PasswordHash ?? DummyPasswordHash) || user is null)
                 return AccountUpdateResult.InvalidCredentials;
 
             if (!await CallOnEveryRealmAsync(realm => new HttpRequestMessage(
@@ -83,7 +94,7 @@ namespace Myria.Server.Auth.Services
         public async Task<(AccountUpdateResult Result, AuthResponse? Response)> ChangeUsernameAsync(ChangeUsernameRequest req)
         {
             var user = await db.Users.SingleOrDefaultAsync(u => u.Username == req.Username);
-            if (user is null || !VerifyPassword(req.Password, user.PasswordHash))
+            if (!VerifyPassword(req.Password, user?.PasswordHash ?? DummyPasswordHash) || user is null)
                 return (AccountUpdateResult.InvalidCredentials, null);
 
             if (req.NewUsername == user.Username)
@@ -107,7 +118,7 @@ namespace Myria.Server.Auth.Services
         public async Task<(AccountUpdateResult Result, AuthResponse? Response)> ChangePasswordAsync(ChangePasswordRequest req)
         {
             var user = await db.Users.SingleOrDefaultAsync(u => u.Username == req.Username);
-            if (user is null || !VerifyPassword(req.OldPassword, user.PasswordHash))
+            if (!VerifyPassword(req.OldPassword, user?.PasswordHash ?? DummyPasswordHash) || user is null)
                 return (AccountUpdateResult.InvalidCredentials, null);
 
             user.PasswordHash = HashPassword(req.NewPassword);

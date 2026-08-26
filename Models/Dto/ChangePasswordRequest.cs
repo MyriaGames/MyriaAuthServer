@@ -7,10 +7,10 @@ namespace Myria.Server.Auth.Models.Dto
         [Required]
         public string Username { get; set; } = string.Empty;
 
-        [Required]
+        [Required, MaxLength(128)]
         public string OldPassword { get; set; } = string.Empty;
 
-        [Required, MinLength(8)]
+        [Required, MinLength(8), MaxLength(128)]
         public string NewPassword { get; set; } = string.Empty;
     }
 }
