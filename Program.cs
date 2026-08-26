@@ -54,6 +54,12 @@ if (builder.Environment.IsProduction())
     if (!File.Exists(Path.IsPathRooted(certPath) ? certPath : Path.Combine(AppContext.BaseDirectory, certPath)))
         throw new InvalidOperationException($"Kestrel:Endpoints:Https:Certificate:Path '{certPath}' does not exist.");
 }
+// Note: the dev-only Kestrel:Endpoints:Http entry deliberately lives in appsettings.Development.json,
+// not here - configuration providers merge by key, so if it lived in this file (loaded in every
+// environment) it would stay bound alongside the Https endpoint above even in Production. Verified
+// empirically: with it in the shared file, Production served plain HTTP on top of HTTPS despite
+// the check above. Keeping it Development-only is what makes "Production requires HTTPS" actually
+// mean HTTPS-only.
 
 // Database — local SQLite file, no external server/connection required. The connection
 // string's "Data Source" is resolved against AppContext.BaseDirectory so it doesn't
