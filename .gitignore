@@ -18,7 +18,14 @@ packages/
 ## Secrets (never commit real secrets)
 secrets.json
 appsettings.local.json
+appsettings.Local.json
+appsettings.Development.json
 appsettings.Production.json
+.env
+.env.*
+*.pfx
+*.pem
+*.key
 
 ## SQLite runtime data (account state — not source content)
 Storage/*.db
