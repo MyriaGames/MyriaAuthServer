@@ -20,7 +20,8 @@ namespace Myria.Server.Auth.Services
         NotFound
     }
 
-    public class AuthService(AuthDbContext db, IConfiguration config, IHttpClientFactory httpClientFactory)
+    public class AuthService(
+        AuthDbContext db, IConfiguration config, IHttpClientFactory httpClientFactory, ILogger<AuthService> logger)
     {
         private const int SaltSize = 16;
         private const int HashSize = 32;
@@ -155,6 +156,19 @@ namespace Myria.Server.Auth.Services
 
             foreach (var realm in realms)
             {
+                // Plain-HTTP realms are allowed (see Program.cs's startup banner for the
+                // operator-facing warning), but every single call still needs to be visible in
+                // the logs, not just once at boot — this is the exact moment the internal secret
+                // actually goes out over the network in the clear.
+                if (Uri.TryCreate(realm.Url, UriKind.Absolute, out var realmUri)
+                    && realmUri.Scheme == Uri.UriSchemeHttp
+                    && realmUri.Host is not ("localhost" or "127.0.0.1" or "::1"))
+                {
+                    logger.LogWarning(
+                        "Sending Admin:InternalSecret to realm '{RealmName}' ({RealmUrl}) over plain HTTP.",
+                        realm.Name, realm.Url);
+                }
+
                 var request = buildRequest(realm);
                 request.Headers.Add("X-Internal-Secret", InternalSecret);
 

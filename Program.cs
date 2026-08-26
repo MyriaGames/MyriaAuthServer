@@ -1,3 +1,4 @@
+using System.Text;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -20,6 +21,13 @@ if (builder.Environment.IsProduction())
         throw new InvalidOperationException(
             "Jwt:Key is still the dev placeholder (or unset) while running in Production. " +
             "Set a real secret via the Jwt__Key environment variable before starting this service.");
+    // HMAC-SHA256 (see AuthService.BuildToken) wants a key at least as long as its output (32
+    // bytes/256 bits) to actually use its full security margin - a short-but-real key would
+    // pass the placeholder check above yet still be brute-forceable.
+    if (Encoding.UTF8.GetByteCount(jwtKey) < 32)
+        throw new InvalidOperationException(
+            "Jwt:Key is shorter than 32 bytes while running in Production. Set a longer secret " +
+            "via the Jwt__Key environment variable — this key signs every player's session token.");
     if (pepper == "REPLACE_ME_DEV_PLACEHOLDER_PEPPER" || string.IsNullOrWhiteSpace(pepper))
         throw new InvalidOperationException(
             "Security:Pepper is still the dev placeholder (or unset) while running in Production. " +
@@ -115,6 +123,48 @@ var runningVersion = File.Exists(versionMarkerPath)
     ? File.ReadAllText(versionMarkerPath).Trim()
     : "dev (no .installed_version marker — not deployed via update-production.sh)";
 app.Logger.LogInformation("Myria.Server.Auth starting — version: {Version}", runningVersion);
+
+// Plain-HTTP realms are allowed (some operators can't put every realm behind HTTPS
+// immediately), but every account-delete/rename admin call to one sends Admin:InternalSecret
+// in the clear over the network - anyone who can observe that traffic gets the shared secret
+// that authenticates realm-to-realm admin calls. Loopback realms are exempt (that traffic
+// never leaves the machine). This has to be impossible to miss, so it's both a structured
+// LogWarning (for log aggregators/alerting) and a loud console banner (for anyone watching the
+// terminal at startup) - deliberately not a hard failure like the Jwt/Admin/HTTPS checks above.
+var configuredRealms = builder.Configuration.GetSection("Realms")
+    .Get<List<Myria.Server.Auth.Models.RealmDefinition>>() ?? [];
+var insecureRealms = configuredRealms
+    .Where(r => Uri.TryCreate(r.Url, UriKind.Absolute, out var uri)
+        && uri.Scheme == Uri.UriSchemeHttp
+        && uri.Host is not ("localhost" or "127.0.0.1" or "::1"))
+    .ToList();
+
+if (insecureRealms.Count > 0)
+{
+    foreach (var r in insecureRealms)
+        app.Logger.LogWarning(
+            "INSECURE REALM CONFIG: realm '{RealmName}' ({RealmUrl}) is plain HTTP, not HTTPS. " +
+            "Admin:InternalSecret is sent in the clear on every admin call to this realm.",
+            r.Name, r.Url);
+
+    var prevColor = Console.ForegroundColor;
+    Console.ForegroundColor = ConsoleColor.Red;
+    Console.WriteLine();
+    Console.WriteLine("################################################################");
+    Console.WriteLine("!!  WARNING: INSECURE REALM CONFIGURATION (plain HTTP)");
+    Console.WriteLine("################################################################");
+    foreach (var r in insecureRealms)
+        Console.WriteLine($"!!  Realm '{r.Name}' ({r.Url}) is NOT behind HTTPS.");
+    Console.WriteLine("!!  Every admin call (account delete/rename) to a realm above sends");
+    Console.WriteLine("!!  Admin:InternalSecret in the clear over the network. This is only");
+    Console.WriteLine("!!  acceptable if that realm is unreachable from outside a trusted");
+    Console.WriteLine("!!  network (e.g. same machine or a private LAN) — it is NOT safe for");
+    Console.WriteLine("!!  a realm reachable over the public internet.");
+    Console.WriteLine("!!  Configure Kestrel:Endpoints:Https on that realm as soon as possible.");
+    Console.WriteLine("################################################################");
+    Console.WriteLine();
+    Console.ForegroundColor = prevColor;
+}
 
 using (var scope = app.Services.CreateScope())
 {
