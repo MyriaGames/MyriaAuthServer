@@ -27,11 +27,19 @@ namespace Myria.Server.Auth.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         public async Task<IActionResult> Login(LoginRequest req)
         {
-            var result = await auth.LoginAsync(req);
-            if (result is null)
-                return Unauthorized(new { message = "Invalid username or password." });
-
-            return Ok(result);
+            var (result, response) = await auth.LoginAsync(req);
+            return result switch
+            {
+                AccountUpdateResult.Success => Ok(response),
+                // Distinct from 401 so a client doesn't report "wrong password" for a correct one.
+                // The password was verified, so the client can go straight to PUT /api/auth/password.
+                AccountUpdateResult.PasswordChangeRequired => StatusCode(StatusCodes.Status403Forbidden, new
+                {
+                    code = "PasswordChangeRequired",
+                    message = "An administrator requires you to change your password before logging in."
+                }),
+                _ => Unauthorized(new { message = "Invalid username or password." })
+            };
         }
 
         // GDPR Art. 17 — deletes the account and, via each realm's internal admin
@@ -95,6 +103,8 @@ namespace Myria.Server.Auth.Controllers
                 AccountUpdateResult.Success => Ok(response),
                 AccountUpdateResult.InvalidCredentials =>
                     Unauthorized(new { message = "Invalid username or password." }),
+                AccountUpdateResult.Conflict =>
+                    Conflict(new { message = "The new password must be different from the current one." }),
                 _ => StatusCode(StatusCodes.Status500InternalServerError)
             };
         }

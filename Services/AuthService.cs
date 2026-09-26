@@ -17,7 +17,11 @@ namespace Myria.Server.Auth.Services
         InvalidCredentials,
         Conflict,
         RealmUnreachable,
-        NotFound
+        NotFound,
+        /// <summary>Credentials were right, but an operator flagged the account for a forced password change.</summary>
+        PasswordChangeRequired,
+        /// <summary>Password-reset link is unknown, expired, already used or superseded.</summary>
+        InvalidToken
     }
 
     public class AuthService(
@@ -55,13 +59,20 @@ namespace Myria.Server.Auth.Services
             return BuildToken(user);
         }
 
-        public async Task<AuthResponse?> LoginAsync(LoginRequest req)
+        // No token is issued while MustChangePassword is set - the token is what grants realm
+        // access, so a flagged account has to go through ChangePasswordAsync (or a reset link)
+        // first. Only reported after the password verified, so it can't be used to find out
+        // which accounts are flagged without knowing their password.
+        public async Task<(AccountUpdateResult Result, AuthResponse? Response)> LoginAsync(LoginRequest req)
         {
             var user = await db.Users.SingleOrDefaultAsync(u => u.Username == req.Username);
             if (!VerifyPassword(req.Password, user?.PasswordHash ?? DummyPasswordHash) || user is null)
-                return null;
+                return (AccountUpdateResult.InvalidCredentials, null);
 
-            return BuildToken(user);
+            if (user.MustChangePassword)
+                return (AccountUpdateResult.PasswordChangeRequired, null);
+
+            return (AccountUpdateResult.Success, BuildToken(user));
         }
 
         // GDPR Art. 17 right to erasure. Re-verifies the password (rather than trusting a JWT)
@@ -77,6 +88,11 @@ namespace Myria.Server.Auth.Services
             if (!VerifyPassword(req.Password, user?.PasswordHash ?? DummyPasswordHash) || user is null)
                 return AccountUpdateResult.InvalidCredentials;
 
+            return await DeleteUserAsync(user);
+        }
+
+        private async Task<AccountUpdateResult> DeleteUserAsync(User user)
+        {
             if (!await CallOnEveryRealmAsync(realm => new HttpRequestMessage(
                     HttpMethod.Delete,
                     $"{realm.Url.TrimEnd('/')}/api/admin/characters/{Uri.EscapeDataString(user.Username)}")))
@@ -122,9 +138,207 @@ namespace Myria.Server.Auth.Services
             if (!VerifyPassword(req.OldPassword, user?.PasswordHash ?? DummyPasswordHash) || user is null)
                 return (AccountUpdateResult.InvalidCredentials, null);
 
+            // A forced change is pointless if the "new" password is the one that was just flagged.
+            if (user.MustChangePassword && req.NewPassword == req.OldPassword)
+                return (AccountUpdateResult.Conflict, null);
+
             user.PasswordHash = HashPassword(req.NewPassword);
+            user.MustChangePassword = false;
             await db.SaveChangesAsync();
             return (AccountUpdateResult.Success, BuildToken(user));
+        }
+
+        // ── Password reset (no email service: operator-mediated, see PasswordResetRequest) ──
+
+        // Public entry point. Always looks identical from the outside whether or not the username
+        // exists (the controller answers 202 either way) - this only records a Pending request for
+        // a real account, at most one at a time so it can't be used to flood the operator's queue.
+        public async Task RequestPasswordResetAsync(string username)
+        {
+            var user = await db.Users.SingleOrDefaultAsync(u => u.Username == username);
+            if (user is null) return;
+
+            if (await db.PasswordResetRequests.AnyAsync(r =>
+                    r.UserId == user.Id && r.Status == PasswordResetStatus.Pending))
+                return;
+
+            db.PasswordResetRequests.Add(new PasswordResetRequest { UserId = user.Id });
+            await db.SaveChangesAsync();
+        }
+
+        // Operator action: verify the person out of band first, then issue. Returns the one-time
+        // link - the token itself is never stored, so this is the only time it can be shown.
+        // Re-issuing replaces the previous link, so a user only ever has one live link.
+        public async Task<(AccountUpdateResult Result, IssuedResetLink? Link)> IssueResetLinkAsync(
+            int requestId, int? validMinutes = null)
+        {
+            var request = await db.PasswordResetRequests.Include(r => r.User)
+                .SingleOrDefaultAsync(r => r.Id == requestId);
+            if (request is null || request.Status is PasswordResetStatus.Used or PasswordResetStatus.Dismissed)
+                return (AccountUpdateResult.NotFound, null);
+
+            return (AccountUpdateResult.Success, await IssueAsync(request, validMinutes));
+        }
+
+        // Operator action without a prior user request (e.g. they contacted you directly).
+        public async Task<(AccountUpdateResult Result, IssuedResetLink? Link)> IssueResetLinkForUserAsync(
+            string username, int? validMinutes = null)
+        {
+            var user = await db.Users.SingleOrDefaultAsync(u => u.Username == username);
+            if (user is null)
+                return (AccountUpdateResult.NotFound, null);
+
+            var request = await db.PasswordResetRequests.Include(r => r.User)
+                .Where(r => r.UserId == user.Id &&
+                            (r.Status == PasswordResetStatus.Pending || r.Status == PasswordResetStatus.Issued))
+                .OrderByDescending(r => r.RequestedAt)
+                .FirstOrDefaultAsync();
+
+            if (request is null)
+            {
+                request = new PasswordResetRequest { UserId = user.Id, User = user };
+                db.PasswordResetRequests.Add(request);
+            }
+
+            return (AccountUpdateResult.Success, await IssueAsync(request, validMinutes));
+        }
+
+        private async Task<IssuedResetLink> IssueAsync(PasswordResetRequest request, int? validMinutes)
+        {
+            var minutes = Math.Clamp(
+                validMinutes ?? config.GetValue("PasswordReset:LinkValidMinutes", 60), 5, 24 * 60);
+
+            var token = Microsoft.AspNetCore.WebUtilities.WebEncoders.Base64UrlEncode(
+                RandomNumberGenerator.GetBytes(32));
+
+            // Supersede any other live link for this user: only the newest one may work.
+            var others = await db.PasswordResetRequests
+                .Where(r => r.UserId == request.UserId && r.Id != request.Id && r.Status == PasswordResetStatus.Issued)
+                .ToListAsync();
+            foreach (var o in others)
+                o.Status = PasswordResetStatus.Dismissed;
+
+            var now = DateTime.UtcNow;
+            request.TokenHash = HashToken(token);
+            request.Status = PasswordResetStatus.Issued;
+            request.IssuedAt = now;
+            request.ExpiresAt = now.AddMinutes(minutes);
+            await db.SaveChangesAsync();
+
+            // The token rides in the URL *fragment*: it is never sent to the server in the page
+            // request, so it stays out of access logs and Referer headers. The page's script reads
+            // it and POSTs it to /api/auth/password-reset/confirm.
+            var baseUrl = (config["PasswordReset:PublicBaseUrl"] ?? "http://localhost:5050").TrimEnd('/');
+            return new IssuedResetLink(
+                request.Id, request.User.Username, $"{baseUrl}/reset-password#token={token}", request.ExpiresAt.Value);
+        }
+
+        public async Task<AccountUpdateResult> DismissResetRequestAsync(int requestId)
+        {
+            var request = await db.PasswordResetRequests.SingleOrDefaultAsync(r => r.Id == requestId);
+            if (request is null || request.Status is PasswordResetStatus.Used or PasswordResetStatus.Dismissed)
+                return AccountUpdateResult.NotFound;
+
+            request.Status = PasswordResetStatus.Dismissed;
+            request.TokenHash = null;
+            await db.SaveChangesAsync();
+            return AccountUpdateResult.Success;
+        }
+
+        // Public: the user follows the operator-sent link and picks a new password.
+        public async Task<AccountUpdateResult> ConfirmPasswordResetAsync(string token, string newPassword)
+        {
+            var hash = HashToken(token);
+            var now = DateTime.UtcNow;
+            var request = await db.PasswordResetRequests.Include(r => r.User)
+                .SingleOrDefaultAsync(r => r.TokenHash == hash && r.Status == PasswordResetStatus.Issued);
+
+            if (request is null || request.ExpiresAt is null || request.ExpiresAt <= now)
+                return AccountUpdateResult.InvalidToken;
+
+            request.User.PasswordHash = HashPassword(newPassword);
+            request.User.MustChangePassword = false;
+            request.Status = PasswordResetStatus.Used;
+            request.UsedAt = now;
+            request.TokenHash = null;
+
+            var open = await db.PasswordResetRequests
+                .Where(r => r.UserId == request.UserId && r.Id != request.Id &&
+                            (r.Status == PasswordResetStatus.Pending || r.Status == PasswordResetStatus.Issued))
+                .ToListAsync();
+            foreach (var o in open)
+            {
+                o.Status = PasswordResetStatus.Dismissed;
+                o.TokenHash = null;
+            }
+
+            await db.SaveChangesAsync();
+            return AccountUpdateResult.Success;
+        }
+
+        private static string HashToken(string token) =>
+            Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+
+        // ── Operator (admin site) queries/actions ────────────────────────────────
+
+        public async Task<(List<AdminUserDto> Users, int Total)> AdminListUsersAsync(string? search, int skip, int take)
+        {
+            var query = db.Users.AsQueryable();
+            if (!string.IsNullOrWhiteSpace(search))
+                query = query.Where(u => u.Username.Contains(search.Trim()));
+
+            var total = await query.CountAsync();
+            var users = await query.OrderBy(u => u.Username)
+                .Skip(Math.Max(skip, 0)).Take(Math.Clamp(take, 1, 200))
+                .Select(u => new AdminUserDto(
+                    u.Id, u.Username, u.CreatedAt, u.MustChangePassword,
+                    db.PasswordResetRequests.Count(r => r.UserId == u.Id &&
+                        (r.Status == PasswordResetStatus.Pending || r.Status == PasswordResetStatus.Issued))))
+                .ToListAsync();
+            return (users, total);
+        }
+
+        public async Task<AdminUserDto?> AdminGetUserAsync(string username) =>
+            await db.Users.Where(u => u.Username == username)
+                .Select(u => new AdminUserDto(
+                    u.Id, u.Username, u.CreatedAt, u.MustChangePassword,
+                    db.PasswordResetRequests.Count(r => r.UserId == u.Id &&
+                        (r.Status == PasswordResetStatus.Pending || r.Status == PasswordResetStatus.Issued))))
+                .SingleOrDefaultAsync();
+
+        public async Task<AccountUpdateResult> AdminDeleteAccountAsync(string username)
+        {
+            var user = await db.Users.SingleOrDefaultAsync(u => u.Username == username);
+            return user is null ? AccountUpdateResult.NotFound : await DeleteUserAsync(user);
+        }
+
+        public async Task<AccountUpdateResult> AdminSetMustChangePasswordAsync(string username, bool required)
+        {
+            var user = await db.Users.SingleOrDefaultAsync(u => u.Username == username);
+            if (user is null)
+                return AccountUpdateResult.NotFound;
+
+            user.MustChangePassword = required;
+            await db.SaveChangesAsync();
+            return AccountUpdateResult.Success;
+        }
+
+        public async Task<List<PasswordResetDto>> AdminListResetRequestsAsync(bool openOnly)
+        {
+            var now = DateTime.UtcNow;
+            var query = db.PasswordResetRequests.AsQueryable();
+            if (openOnly)
+                query = query.Where(r => r.Status == PasswordResetStatus.Pending ||
+                                         (r.Status == PasswordResetStatus.Issued && r.ExpiresAt > now));
+
+            var rows = await query.OrderByDescending(r => r.RequestedAt).Take(200)
+                .Select(r => new { r.Id, r.User.Username, r.RequestedAt, r.Status, r.IssuedAt, r.ExpiresAt, r.UsedAt })
+                .ToListAsync();
+
+            return rows.Select(r => new PasswordResetDto(
+                r.Id, r.Username, r.RequestedAt,
+                r.Status == PasswordResetStatus.Issued && r.ExpiresAt <= now ? "Expired" : r.Status.ToString(),
+                r.IssuedAt, r.ExpiresAt, r.UsedAt)).ToList();
         }
 
         // Operator-only rescue path for someone who's genuinely locked out: there's no email on

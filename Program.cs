@@ -53,6 +53,14 @@ if (builder.Environment.IsProduction())
             "— over plain HTTP. Configure a real HTTPS certificate via appsettings.Production.json.");
     if (!File.Exists(Path.IsPathRooted(certPath) ? certPath : Path.Combine(AppContext.BaseDirectory, certPath)))
         throw new InvalidOperationException($"Kestrel:Endpoints:Https:Certificate:Path '{certPath}' does not exist.");
+
+    // Not fatal (password reset is optional), but a wrong base URL means every reset link the
+    // operator sends points somewhere users can't reach - so say so loudly at startup.
+    var resetBase = builder.Configuration["PasswordReset:PublicBaseUrl"];
+    if (string.IsNullOrWhiteSpace(resetBase) || !resetBase.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        Console.WriteLine(
+            "WARNING: PasswordReset:PublicBaseUrl is not an https:// URL. Password-reset links shown in the " +
+            "admin site are built from it and are sent to users - set your real public https address.");
 }
 // Note: the dev-only Kestrel:Endpoints:Http entry deliberately lives in appsettings.Development.json,
 // not here - configuration providers merge by key, so if it lived in this file (loaded in every

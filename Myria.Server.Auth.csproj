@@ -8,9 +8,9 @@
          historic "MyriaAuthServer" name: Myria.Server.Realm's run-production.sh (shipped
          inside the release zip) hardcodes ./auth/MyriaAuthServer. -->
     <AssemblyName>MyriaAuthServer</AssemblyName>
-    <Version>0.1.0</Version>
-    <AssemblyVersion>0.1.0.0</AssemblyVersion>
-    <FileVersion>0.1.0.0</FileVersion>
+    <Version>0.2.21</Version>
+    <AssemblyVersion>0.2.21.0</AssemblyVersion>
+    <FileVersion>0.2.21.0</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>
